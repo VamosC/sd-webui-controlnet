@@ -34,6 +34,7 @@ def serialize_unit(unit: external_code.ControlNetUnit) -> str:
         "enabled",
         # Note: "advanced_weighting" is excluded as it is an API-only field.
         "advanced_weighting",
+        "head_control_mode",
         # Note: "inpaint_crop_image" is img2img inpaint only flag, which does not
         # provide much information when restoring the unit.
         "inpaint_crop_input_image",

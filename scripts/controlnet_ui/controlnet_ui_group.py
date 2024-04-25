@@ -142,6 +142,7 @@ class UiControlNetUnit(external_code.ControlNetUnit):
         use_preview_as_input: bool = False,
         generated_image: Optional[np.ndarray] = None,
         mask_image: Optional[np.ndarray] = None,
+        reference_image: Optional[np.ndarray] = None,
         enabled: bool = True,
         module: Optional[str] = None,
         model: Optional[str] = None,
@@ -160,6 +161,10 @@ class UiControlNetUnit(external_code.ControlNetUnit):
         if input_image is not None and mask_image is not None:
             assert isinstance(input_image, dict)
             input_image["mask"] = mask_image
+
+        if input_image is not None and reference_image is not None:
+            assert isinstance(input_image, dict)
+            input_image["ref"] = reference_image
 
         if merge_gallery_files and input_mode == InputMode.MERGE:
             input_image = [
@@ -253,6 +258,8 @@ class ControlNetUiGroup(object):
         self.generated_image = None
         self.mask_image_group = None
         self.mask_image = None
+        self.reference_image_group = None
+        self.reference_image = None
         self.batch_tab = None
         self.batch_image_dir = None
         self.merge_tab = None
@@ -286,6 +293,8 @@ class ControlNetUiGroup(object):
         self.threshold_a = None
         self.threshold_b = None
         self.control_mode = None
+        self.head_control_mode = None
+        self.head_control_mode_group = None
         self.resize_mode = None
         self.loopback = None
         self.use_preview_as_input = None
@@ -383,6 +392,17 @@ class ControlNetUiGroup(object):
                                 label="Upload Mask",
                                 elem_id=f"{elem_id_tabname}_{tabname}_mask_image",
                                 elem_classes=["cnet-mask-image"],
+                                interactive=True,
+                            )
+
+                        with gr.Group(
+                            visible=False, elem_classes=["cnet-reference-image-group"]
+                        ) as self.reference_image_group:
+                            self.reference_image = gr.Image(
+                                value=None,
+                                label="Reference",
+                                elem_id=f"{elem_id_tabname}_{tabname}_reference_image",
+                                elem_classes=["cnet-reference-image"],
                                 interactive=True,
                             )
 
@@ -624,6 +644,19 @@ class ControlNetUiGroup(object):
             elem_id=f"{elem_id_tabname}_{tabname}_controlnet_control_mode_radio",
             elem_classes="controlnet_control_mode_radio",
         )
+        
+
+        with gr.Group(
+            visible=False, elem_classes=["cnet-head-control-mode-group"]
+        ) as self.head_control_mode_group:
+            self.head_control_mode = gr.CheckboxGroup(
+                choices=["position", "pose", "expression", "lighting"],
+                value=["position", "pose"],
+                label="Head Control Mode",
+                elem_id=f"{elem_id_tabname}_{tabname}_controlnet_head_control_mode_checkboxgroup",
+                elem_classes=["controlnet_head_control_mode_checkboxgroup"],
+                interactive=True,
+            )
 
         self.resize_mode = gr.Radio(
             choices=[e.value for e in external_code.ResizeMode],
@@ -669,6 +702,7 @@ class ControlNetUiGroup(object):
             self.use_preview_as_input,
             self.generated_image,
             self.mask_image,
+            self.reference_image,
             # End of Non-persistent fields.
             self.enabled,
             self.module,
@@ -684,6 +718,7 @@ class ControlNetUiGroup(object):
             self.guidance_end,
             self.pixel_perfect,
             self.control_mode,
+            self.head_control_mode,
             self.inpaint_crop_input_image,
             self.hr_option,
         )
@@ -1216,6 +1251,31 @@ class ControlNetUiGroup(object):
                 show_progress=False,
             )
 
+    def register_shift_upload_reference(self):
+        """Controls whether the reference input should be visible."""
+        self.module.change(
+            fn=lambda value: (
+                (gr.update(visible=False), gr.update(value=None))
+                if value not in ['caphuman']
+                else (gr.update(visible=True), gr.update())
+            ),
+            inputs=[self.module],
+            outputs=[self.reference_image_group, self.reference_image],
+            show_progress=False,
+        )
+
+    def register_shift_head_control_mode(self):
+        """Controls whether the head control mode should be visible."""
+        self.module.change(
+                fn=lambda value:
+                gr.update(visible=False)
+                if value not in ['caphuman']
+                else gr.update(visible=True),
+            inputs=[self.module],
+            outputs=[self.head_control_mode_group],
+            show_progress=False,
+        )
+
     def register_sync_batch_dir(self):
         def determine_batch_dir(batch_dir, fallback_dir, fallback_fallback_dir):
             if batch_dir:
@@ -1318,6 +1378,8 @@ class ControlNetUiGroup(object):
         self.register_build_sliders()
         self.register_shift_preview()
         self.register_shift_upload_mask()
+        self.register_shift_upload_reference()
+        self.register_shift_head_control_mode()
         self.register_create_canvas()
         self.register_clear_preview()
         self.register_multi_images_upload()

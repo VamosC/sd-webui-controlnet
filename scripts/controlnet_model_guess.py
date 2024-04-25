@@ -222,10 +222,14 @@ def build_model_by_guess(state_dict, unet, model_path: str) -> ControlModel:
 
         config['use_fp16'] = devices.dtype_unet == torch.float16
 
+        config['has_mask_predict'] = 'mask_predict.0.weight' in state_dict
+
         network = PlugableControlModel(config, state_dict)
         network.to(devices.dtype_unet)
         if "instant_id" in model_path.lower():
             control_model_type = ControlModelType.InstantID
+        elif "caphuman" in model_path.lower():
+            control_model_type = ControlModelType.CapHuman
         else:
             control_model_type = ControlModelType.ControlNet
         return ControlModel(network, control_model_type)

@@ -63,6 +63,7 @@ class ControlModelType(Enum):
     Controlllite = "Controlllite, Kohya"
     InstantID = "InstantID, Qixun Wang"
     SparseCtrl = "SparseCtrl, Yuwei Guo"
+    CapHuman = "CapHuman, Chao Liang"
 
     def is_controlnet(self) -> bool:
         """Returns whether the control model should be treated as ControlNet."""
@@ -70,6 +71,7 @@ class ControlModelType(Enum):
             ControlModelType.ControlNet,
             ControlModelType.ControlLoRA,
             ControlModelType.InstantID,
+            ControlModelType.CapHuman
         )
 
     def allow_context_sharing(self) -> bool:

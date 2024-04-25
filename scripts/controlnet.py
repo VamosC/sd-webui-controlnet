@@ -700,6 +700,9 @@ class Script(scripts.Script, metaclass=(
                         logger.info("using mask as input")
                         input_image = HWC3(image['mask'][:, :, 0])
                         unit.module = 'none'  # Always use black bg and white line
+                if 'ref' in image and image['ref'] is not None:
+                    ref_image = HWC3(decode_image(image['ref']))
+                    input_image = [input_image, ref_image]
         elif a1111_image is not None:
             input_image = HWC3(np.asarray(a1111_image))
             a1111_i2i_resize_mode = getattr(p, "resize_mode", None)
@@ -949,6 +952,9 @@ class Script(scripts.Script, metaclass=(
             input_image, resize_mode = Script.choose_input_image(p, unit, idx)
             is_cn_ad_batch = getattr(unit, "animatediff_batch", False)
             cn_ad_keyframe_idx = getattr(unit, "batch_keyframe_idx", None)
+            if control_model_type == ControlModelType.CapHuman:
+                input_image, ref_image = input_image
+                ref_images = [ref_image]
             if isinstance(input_image, list):
                 assert unit.accepts_multiple_inputs() or is_cn_ad_batch
                 input_images = input_image
@@ -959,6 +965,8 @@ class Script(scripts.Script, metaclass=(
                     # inpaint_only+lama is special and required outpaint fix
                     _, input_image = Script.detectmap_proc(input_image, unit.module, resize_mode, hr_y, hr_x)
                 input_images = [input_image]
+            if control_model_type == ControlModelType.CapHuman:
+                input_images = [(x, y) for x, y in zip(input_images, ref_images)]
 
             if unit.pixel_perfect:
                 unit.processor_res = external_code.pixel_perfect_resolution(
@@ -986,6 +994,7 @@ class Script(scripts.Script, metaclass=(
                 detected_map, is_image = self.preprocessor[unit.module](
                     input_image,
                     res=unit.processor_res,
+                    head_control_mode=tuple(unit.head_control_mode),
                     thr_a=unit.threshold_a,
                     thr_b=unit.threshold_b,
                     low_vram=(
@@ -1007,7 +1016,10 @@ class Script(scripts.Script, metaclass=(
                     store_detected_map(detected_map, unit.module)
                 else:
                     control = detected_map
-                    store_detected_map(input_image, unit.module)
+                    if isinstance(input_image, List) or isinstance(input_image, Tuple):
+                        store_detected_map(input_image[0], unit.module)
+                    else:
+                        store_detected_map(input_image, unit.module)
 
                 if control_model_type == ControlModelType.T2I_StyleAdapter:
                     control = control['last_hidden_state']
@@ -1246,6 +1258,9 @@ class Script(scripts.Script, metaclass=(
                 control_model = ip_adapter_param.control_model
                 assert hasattr(control_model, "image_emb")
                 param.control_context_override = control_model.image_emb
+            elif param.control_model_type == ControlModelType.CapHuman:
+                param.control_context_override = [param.hint_cond.face_embed, param.hint_cond.clip_embed]
+                param.hint_cond = param.hint_cond.head_cond
 
         self.latest_network = UnetHook(lowvram=is_low_vram)
         self.latest_network.hook(model=unet, sd_ldm=sd_ldm, control_params=forward_params, process=p,

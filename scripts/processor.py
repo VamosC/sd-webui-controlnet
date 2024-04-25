@@ -3,11 +3,12 @@ import cv2
 import numpy as np
 import torch
 import math
+import einops
 from dataclasses import dataclass
 from transformers.models.clip.modeling_clip import CLIPVisionModelOutput
 
 from annotator.util import HWC3
-from typing import Callable, Tuple, Union
+from typing import Callable, Tuple, Union, List
 
 from modules.safe import Extra
 from modules import devices
@@ -305,6 +306,98 @@ class OpenposeModel(object):
 g_openpose_model = OpenposeModel()
 
 model_uniformer = None
+
+class HeadModel(object):
+    def __init__(self) -> None:
+        self.model_head = None
+
+    def run_model(
+            self,
+            img: np.ndarray,
+            ref_img: np.ndarray,
+            res: int = 512,
+            modes: Tuple[str] = None,
+            **kwargs  # Ignore rest of kwargs
+    ) -> Tuple[np.ndarray, bool]:
+        """Run the head model. Returns a tuple of
+        - result image
+        - is_image flag
+        """
+
+        img, remove_pad = resize_image_with_pad(img, res)
+        ref_img, _ = resize_image_with_pad(ref_img, res)
+
+        if self.model_head is None:
+            from annotator.headmodel import FlameHeadModel
+            self.model_head = FlameHeadModel()
+
+        out = remove_pad(self.model_head(
+            img,
+            ref_img,
+            res,
+            modes
+        ))
+        out = einops.rearrange(torch.from_numpy(out), 'h w c -> c h w').unsqueeze(0)
+        out = out.to(self.model_head.device)
+        return out, False
+
+    def unload(self):
+        if self.model_head is not None:
+            self.model_head.unload_model()
+
+@dataclass
+class IDHeadInput:
+    face_embed: torch.Tensor
+    clip_embed: torch.Tensor
+    head_cond: torch.Tensor
+
+class IDHeadModel(object):
+    def __init__(self) -> None:
+        self.model_head = None
+        self.model_face_parsing = None
+        self.model_facenet = None
+
+    def run_model(
+            self,
+            img: List[np.ndarray],
+            res: int = 512,
+            head_control_mode: Tuple[str] = None,
+            **kwargs  # Ignore rest of kwargs
+    ) -> Tuple[IDHeadInput, bool]:
+        """Run the id and head model. Returns a tuple of
+        - IDHeadInput
+        - is_image flag
+        """
+        if self.model_head is None:
+            self.model_head = HeadModel()
+        if self.model_face_parsing is None:
+            from annotator.faceparsing import FaceParser
+            self.model_face_parsing = FaceParser()
+        if self.model_facenet is None:
+            from annotator.facenet import FaceNet
+            self.model_facenet = FaceNet()
+
+        img, ref_img = img
+        clip_img, _ = self.model_face_parsing(img)
+        clip_out, _ = clip(np.array(clip_img), config='clip_vitl')
+        clip_embed = clip_out['last_hidden_state']
+        clip_embed = clip_embed.repeat(2, 1, 1)
+        face_embed, _ = self.model_facenet(img)
+        face_embed = face_embed.repeat(2, 1, 1)
+
+        head_cond, _ = self.model_head.run_model(img, ref_img, res, head_control_mode, **kwargs)
+
+        return IDHeadInput(face_embed, clip_embed, head_cond), False
+
+    def unload(self):
+        if self.model_head is not None:
+            self.model_head.unload_model()
+            self.model_face_parsing.unload_model()
+            self.model_facenet.unload_model()
+
+g_head_model = HeadModel()
+
+g_id_head_model = IDHeadModel()
 
 
 def uniformer(img, res=512, **kwargs):
@@ -1317,6 +1410,7 @@ preprocessor_filters = {
     "IP-Adapter": "ip-adapter_clip_sd15",
     "Instant_ID": "instant_id",
     "SparseCtrl": "none",
+    "CapHuman": "caphuman"
 }
 
 preprocessor_filters_aliases = {

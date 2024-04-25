@@ -576,6 +576,8 @@ class UnetHook(nn.Module):
                 if param.control_model_type == ControlModelType.InstantID:
                     assert isinstance(param.control_context_override, ImageEmbed)
                     controlnet_context = param.control_context_override.eval(cond_mark).to(x.device, dtype=x.dtype)
+                elif param.control_model_type == ControlModelType.CapHuman:
+                    controlnet_context = param.control_context_override
                 else:
                     controlnet_context = context
 

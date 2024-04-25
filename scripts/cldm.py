@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import torchvision.transforms.functional as F
+from typing import List
 
 from modules import devices
 
@@ -92,6 +94,7 @@ class ControlNet(nn.Module):
         transformer_depth_middle=None,
         device=None,
         global_average_pooling=False,
+        has_mask_predict=False
     ):
         super().__init__()
 
@@ -280,6 +283,15 @@ class ControlNet(nn.Module):
         self.middle_block_out = self.make_zero_conv(ch)
         self._feature_size += ch
 
+        self.has_mask_predict = has_mask_predict
+        if has_mask_predict:
+            self.mask_predict = nn.Sequential(
+                    conv_nd(2, model_channels, 1, 3, padding=1, stride=1),
+                    nn.Sigmoid()
+            )
+            self.id_linear = nn.Linear(512, context_dim)
+            self.img_linear = nn.Linear(1024, context_dim)
+
     def make_zero_conv(self, channels):
         return TimestepEmbedSequential(zero_module(conv_nd(self.dims, channels, channels, 1, padding=0)))
 
@@ -289,7 +301,13 @@ class ControlNet(nn.Module):
         x = x.to(self.dtype)
         hint = hint.to(self.dtype)
         timesteps = timesteps.to(self.dtype)
-        context = context.to(self.dtype)
+        if isinstance(context, List):
+            face_emb, clip_emb = context
+            face_emb = self.id_linear(face_emb)
+            clip_emb = self.img_linear(clip_emb)
+            context = torch.cat([face_emb, clip_emb], dim=1)
+        else:
+            context = context.to(self.dtype)
 
         if y is not None:
             y = y.to(self.dtype)
@@ -298,6 +316,8 @@ class ControlNet(nn.Module):
         emb = self.time_embed(t_emb)
 
         guided_hint = self.input_hint_block(hint, emb, context)
+        if self.has_mask_predict:
+            mask = self.mask_predict(guided_hint)
         outs = []
 
         if self.num_classes is not None:
@@ -308,14 +328,20 @@ class ControlNet(nn.Module):
         for module, zero_conv in zip(self.input_blocks, self.zero_convs):
             if guided_hint is not None:
                 h = module(h, emb, context)
-                h += guided_hint
+                h += F.resize(guided_hint, h.shape[-2:])
                 guided_hint = None
             else:
                 h = module(h, emb, context)
-            outs.append(zero_conv(h, emb, context))
+            m = zero_conv(h, emb, context)
+            if self.has_mask_predict:
+                m *= F.resize(mask, m.shape[-2:])
+            outs.append(m)
 
         h = self.middle_block(h, emb, context)
-        outs.append(self.middle_block_out(h, emb, context))
+        m = self.middle_block_out(h, emb, context)
+        if self.has_mask_predict:
+            m *= F.resize(mask, m.shape[-2:])
+        outs.append(m)
 
         outs = [o.to(original_type) for o in outs]
 

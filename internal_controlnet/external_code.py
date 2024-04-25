@@ -168,6 +168,7 @@ class ControlNetUnit:
     guidance_end: float = 1.0
     pixel_perfect: bool = False
     control_mode: Union[ControlMode, int, str] = ControlMode.BALANCED
+    head_control_mode: Tuple[str] = None
     # Whether to crop input image based on A1111 img2img mask. This flag is only used when `inpaint area`
     # in A1111 is set to `Only masked`. In API, this correspond to `inpaint_full_res = True`.
     inpaint_crop_input_image: bool = True
