@@ -10,7 +10,7 @@ from annotator.annotator_path import models_path
 
 # from modules.bn import InPlaceABNSync as BatchNorm2d
 
-resnet18_url = os.path.join(models_path, 'face-parsing', 'resnet18-5c106cde.pth')
+resnet18_url = 'https://download.pytorch.org/models/resnet18-5c106cde.pth'
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -82,8 +82,7 @@ class Resnet18(nn.Module):
         return feat8, feat16, feat32
 
     def init_weight(self):
-        # state_dict = modelzoo.load_url(resnet18_url)
-        state_dict = torch.load(resnet18_url)
+        state_dict = modelzoo.load_url(resnet18_url)
         self_state_dict = self.state_dict()
         for k, v in state_dict.items():
             if 'fc' in k: continue
